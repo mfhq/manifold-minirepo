@@ -143,14 +143,17 @@ class Env:
         subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', name, '-f', str(path)], check=True)
         return path
 
-    def write_config(self, extra: str = '', repository: str = '') -> Path:
+    def write_config(self, extra: str = '', repository: str = '', signing_key: str | None = 'keys/repo') -> Path:
         path = self.dir / 'mrepo.toml'
         path.write_text(
             '[repository]\n'
             'id = "test"\n'
             'summary = "Images for the tests"\n'
             'url = "https://example.org/repo"\n'
-            'signing-key = "keys/repo"\n' + repository + '\n' + extra
+            + ('signing-key = "{}"\n'.format(signing_key) if signing_key is not None else '')
+            + repository
+            + '\n'
+            + extra
         )
         return path
 

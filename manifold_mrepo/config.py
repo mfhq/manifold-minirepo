@@ -18,6 +18,9 @@ DEFAULT_CONFIG_NAME = 'manifold-repo.toml'
 # the only channel there is for now
 MAIN_CHANNEL = 'main'
 
+# the environment variable with a private key to sign the root index with, instead of signing-key
+SIGNING_KEY_ENV = 'MREPO_SIGNING_KEY'
+
 # the placeholders an image URL template can have
 IMAGE_URL_PLACEHOLDERS = ('{component}', '{version}', '{revision}', '{file}')
 
@@ -47,7 +50,7 @@ class Config:
     id: str
     summary: str
     url: str
-    signing_key: str
+    signing_key: str | None  # None: the key is in $MREPO_SIGNING_KEY
     incoming_dir: Path
     processed_dir: Path | None  # None: imported bundles are deleted
     public_dir: Path
@@ -115,8 +118,8 @@ def load_config(path: Path) -> Config:
     url = _check_url(_get(repo, 'url', str, 'repository', required=True), '[repository] url').rstrip('/')
 
     # a key path is relative to the configuration, names and fingerprints are not paths
-    signing_key = _get(repo, 'signing-key', str, 'repository', required=True)
-    if '/' in signing_key and not signing_key.startswith('SHA256:'):
+    signing_key = _get(repo, 'signing-key', str, 'repository')
+    if signing_key is not None and '/' in signing_key and not signing_key.startswith('SHA256:'):
         signing_key = str(resolve(signing_key))
 
     processed = _get(paths, 'processed', str, 'paths', default='delete')

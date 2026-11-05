@@ -14,6 +14,7 @@ import pytest
 from conftest import ARCH, JXL_DATA, TestImage
 
 from manifold_mrepo.db import PUBLISH_STATE_ID, Image, PublishState
+from manifold_mrepo.repo import RepositoryError
 from manifold_mrepo.manage import check_files, remove_images
 from manifold_mrepo.publish import publish
 from manifold_mrepo.bindings import GLib, Manifold, AppStream
@@ -23,6 +24,23 @@ from manifold_mrepo.utils.files import zstd_decompress
 
 def _versions(index: dict, component_id: str) -> list[str]:
     return ['{}-{}'.format(v['version'], v['revision']) for v in index['components'][component_id]['versions']]
+
+
+def _check_root_signature(env, key) -> None:
+    """Check that the root index is signed by key, and that the published public key is that key."""
+    public_key = ' '.join(key.with_suffix('.pub').read_text().split()[:2])
+    assert (env.public_dir / 'test_key.pub').read_text() == public_key + '\n'
+
+    allowed = env.dir / 'allowed'
+    allowed.write_text('repo ' + public_key + '\n')
+    with open(env.public_dir / 'repo-index.json.zst', 'rb') as f:
+        subprocess.run(
+            ['ssh-keygen', '-Y', 'verify', '-f', str(allowed), '-I', 'repo', '-n', 'manifold.repo', '-s']
+            + [str(env.public_dir / 'repo-index.sig')],
+            stdin=f,
+            check=True,
+            capture_output=True,
+        )
 
 
 def _check_file(path, entry: dict) -> None:
@@ -54,16 +72,7 @@ def test_import_and_publish(env):
     assert list(channel['architectures']) == [ARCH]
 
     # only the root index is signed, by the repository key, and it pins the files of the channel
-    allowed = env.dir / 'allowed'
-    allowed.write_text('repo ' + ' '.join(env.repo_key.with_suffix('.pub').read_text().split()[:2]) + '\n')
-    with open(env.public_dir / 'repo-index.json.zst', 'rb') as f:
-        subprocess.run(
-            ['ssh-keygen', '-Y', 'verify', '-f', str(allowed), '-I', 'repo', '-n', 'manifold.repo', '-s']
-            + [str(env.public_dir / 'repo-index.sig')],
-            stdin=f,
-            check=True,
-            capture_output=True,
-        )
+    _check_root_signature(env, env.repo_key)
     arch_dir = env.public_dir / 'main' / ARCH
     assert sorted(channel['architectures'][ARCH]) == ['components.xml.zst', 'icons.json.zst', 'index.json.zst']
     for name, file_entry in channel['architectures'][ARCH].items():
@@ -295,6 +304,31 @@ def test_external_images(env, http_dir):
     assert env.read_root_index()['channels']['main']['image-url'] == base_url + '/{component}/{file}'
     with repo.db.session() as session:
         assert find_pending_uploads(repo, session) == []
+
+
+def test_signing_key_from_environment(env, monkeypatch):
+    env.bundle('core.manifold', [TestImage('org.example.Core')])
+    env.write_config(signing_key=None)
+    repo = env.repo()
+    assert repo.config.signing_key is None
+    import_bundles(repo)
+
+    monkeypatch.delenv('MREPO_SIGNING_KEY', raising=False)
+    with pytest.raises(RepositoryError, match='no key to sign'):
+        publish(repo)
+    assert not (env.public_dir / 'repo-index.json.zst').exists()
+
+    # the key in the environment is used instead of signing-key, even without the newline at its end
+    env.write_config()
+    repo = env.repo()
+    monkeypatch.setenv('MREPO_SIGNING_KEY', env.other_key.read_text().strip())
+    assert publish(repo).published
+    _check_root_signature(env, env.other_key)
+
+    # the public key is part of the tree, so it is written again when it is missing
+    (env.public_dir / 'test_key.pub').unlink()
+    assert publish(repo).published
+    _check_root_signature(env, env.other_key)
 
 
 def test_config_errors(env):

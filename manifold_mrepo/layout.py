@@ -21,6 +21,11 @@ ICON_INDEX_NAME = 'icons.json.zst'
 POOL_DIR = 'pool'
 
 
+def public_key_name(repo_id: str) -> str:
+    """The name of the file next to the root index with the public key that signs it."""
+    return '{}_key.pub'.format(repo_id)
+
+
 def pool_location(component_id: str, name: str) -> str:
     """The location of a file of an image in the pool."""
     return '{}/{}/{}'.format(POOL_DIR, rdns_dir(component_id), name)

@@ -32,6 +32,7 @@ from manifold_mrepo.layout import (
     ROOT_SIGNATURE_NAME,
     COMPONENT_INDEX_NAME,
     arch_location,
+    public_key_name,
 )
 from manifold_mrepo.catalog import build_catalog
 from manifold_mrepo.bindings import GLib, Manifold
@@ -43,6 +44,7 @@ from manifold_mrepo.utils.files import (
     zstd_compress,
     zstd_decompress,
 )
+from manifold_mrepo.utils.sshsig import SignatureError, public_key_of_signature
 from manifold_mrepo.utils.hashing import hash_bytes
 from manifold_mrepo.utils.renameat2 import exchange_paths
 
@@ -123,8 +125,9 @@ def _expired_before(repo: Repository, now: datetime) -> datetime:
 
 
 def _publish_needed(repo: Repository, session, now: datetime) -> bool:
-    if not repo.public_path(ROOT_INDEX_NAME).exists():
-        return True
+    for name in (ROOT_INDEX_NAME, public_key_name(repo.config.id)):
+        if not repo.public_path(name).exists():
+            return True
     state = session.get(PublishState, PUBLISH_STATE_ID)
     if state is None or state.dirty:
         return True
@@ -351,8 +354,14 @@ def publish(repo: Repository, *, force: bool = False, recheck_external: bool = F
                 signature = signer.sign(Manifold.SignatureScope.REPO, GLib.Bytes.new(root_index))
             except GLib.Error as e:
                 raise RepositoryError('Unable to sign the root index: {}'.format(e.message))
+            # we take the public key from the signature, as we do not know it for every kind of key
+            try:
+                public_key = public_key_of_signature(signature.get_data())
+            except SignatureError as e:
+                raise RepositoryError('Unable to read the key from the signature of the root index: {}'.format(e))
             write_file(staging_dir / ROOT_INDEX_NAME, root_index)
             write_file(staging_dir / ROOT_SIGNATURE_NAME, signature.get_data())
+            write_file(staging_dir / public_key_name(config.id), (public_key + '\n').encode('ascii'))
             _swap_into_place(staging_dir, public_dir)
         except BaseException:
             shutil.rmtree(staging_dir, ignore_errors=True)

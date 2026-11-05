@@ -8,7 +8,8 @@ id = "example"
 summary = "Example applications and their runtimes"
 # the public URL of the repository, which the media base URL of its catalogs is made from
 url = "https://example.org/manifold"
-# the key that signs the root index: a key name, a key file, or the fingerprint of a key in ssh-agent
+# the key that signs the root index: a key name, a key file, or the fingerprint of a key in ssh-agent;
+# the private key in $MREPO_SIGNING_KEY is used instead if that is set, and this can be left out then
 signing-key = "keys/repo"
 # how many days a root index is valid; it is published again before half of that time has passed
 valid-days = 7

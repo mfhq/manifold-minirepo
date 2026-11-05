@@ -9,7 +9,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 from manifold_mrepo.db import Database
-from manifold_mrepo.config import Config
+from manifold_mrepo.config import SIGNING_KEY_ENV, Config
 from manifold_mrepo.bindings import GLib, Manifold
 from manifold_mrepo.utils.lock import process_file_lock
 
@@ -91,9 +91,18 @@ class Repository:
         return self._trusted_keys
 
     def signer(self) -> Manifold.Signer:
-        """The signer of the repository index."""
+        """The signer of the root index: the private key in $MREPO_SIGNING_KEY if it is set, or else signing-key."""
+        key_data = os.environ.get(SIGNING_KEY_ENV)
+        if not key_data and self.config.signing_key is None:
+            raise RepositoryError(
+                'There is no key to sign the repository with. Set signing-key in [repository], '
+                'or put the private key into ${}.'.format(SIGNING_KEY_ENV)
+            )
         try:
-            signer = Manifold.Signer.new_for_key(self.config.signing_key)
+            if key_data:
+                signer = Manifold.Signer.new_for_key_data(key_data)
+            else:
+                signer = Manifold.Signer.new_for_key(self.config.signing_key)
             signer.check_key()
         except GLib.Error as e:
             raise RepositoryError('Unable to sign the repository: {}'.format(e.message))
