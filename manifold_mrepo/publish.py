@@ -273,7 +273,7 @@ class _TreeBuilder:
                 if image.channel == channel.name:
                     by_arch[image.architecture].append(image)
 
-            channel_entry = {'origin': self.config.origin(channel.name)}
+            channel_entry = {}
             if channel.image_url is not None:
                 channel_entry['image-url'] = channel.image_url
             channel_entry['architectures'] = {

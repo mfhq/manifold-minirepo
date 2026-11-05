@@ -60,7 +60,7 @@ class Config:
     channels: dict[str, ChannelConfig] = field(default_factory=dict)
 
     def origin(self, channel: str) -> str:
-        """The AppStream origin of the catalog of a channel."""
+        """The AppStream origin of the catalogs (one per arch) of a channel."""
         return '{}-{}'.format(self.id, channel)
 
     def media_baseurl(self, channel: str, arch: str) -> str:

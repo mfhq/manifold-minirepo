@@ -48,9 +48,9 @@ def test_import_and_publish(env):
     root = env.read_root_index()
     assert root['id'] == 'test'
     assert root['summary'] == 'Images for the tests'
+    # the origin of the channel is always test-main, so the root index doesn't repeat it
     channel = root['channels']['main']
-    assert channel['origin'] == 'test-main'
-    assert 'image-url' not in channel
+    assert list(channel) == ['architectures']
     assert list(channel['architectures']) == [ARCH]
 
     # only the root index is signed, by the repository key, and it pins the files of the channel
