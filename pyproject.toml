@@ -1,0 +1,56 @@
+[project]
+name = "manifold-mrepo"
+description = "Build small repositories of Manifold images"
+authors = [
+    {name = "Matthias Klumpp", email = "matthias@tenstral.net"},
+]
+license = "MPL-2.0"
+readme = "README.md"
+requires-python = ">=3.12"
+dynamic = ["version"]
+dependencies = [
+    "SQLAlchemy>=2.0",
+    "click>=8.0",
+    "zstandard>=0.20",
+    "PyGObject>=3.42",
+    "blake3>=0.3",
+]
+
+[project.scripts]
+manifold-mrepo = "manifold_mrepo.cli:main"
+
+[project.urls]
+Source = "https://github.com/mfhq/manifold-minirepo"
+
+[build-system]
+requires = ["flit_core >= 3.12, < 5"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.sdist]
+include = ["autoformat.sh", "data/", "tests/"]
+
+[dependency-groups]
+tests = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+log_cli = false
+log_level = "INFO"
+pythonpath = ["."]
+testpaths = [
+    "tests",
+]
+
+[tool.isort]
+py_version = 312
+profile = "black"
+multi_line_output = 3
+skip_gitignore = true
+length_sort = true
+atomic = true
+
+[tool.black]
+target-version = ['py312']
+line-length = 120
+skip-string-normalization = true
+exclude = 'build/|dist/|_build/|\.git/|\.mypy_cache/|\.venv/|venv/'

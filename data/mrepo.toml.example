@@ -1,0 +1,41 @@
+# The configuration of a Manifold repository, for manifold-mrepo.
+# Paths are relative to the directory of this file.
+
+[repository]
+# the ID of the repository; the catalogs of a channel have the AppStream origin <id>-<channel>
+id = "example"
+# a short description of the repository, which clients can show
+summary = "Example applications and their runtimes"
+# the public URL of the repository, which the media base URL of its catalogs is made from
+url = "https://example.org/manifold"
+# the key that signs the root index: a key name, a key file, or the fingerprint of a key in ssh-agent
+signing-key = "keys/repo"
+# how many days a root index is valid; it is published again before half of that time has passed
+valid-days = 7
+# how many versions of a component the index lists
+keep-versions = 3
+# how many days the files of removed images stay downloadable, for clients that have an older index
+grace-days = 3
+
+[paths]
+# where bundles arrive; bundles whose name starts with a dot are not complete yet
+incoming = "incoming"
+# what happens to imported bundles: "delete", or a directory to move them to
+processed = "delete"
+# the tree a web server serves, which holds all files of the repository; it can not be a
+# mount point, as mrepo replaces it as a whole and keeps temporary files next to it
+public = "public"
+database = "mrepo.sqlite"
+
+[trust]
+# the public keys (*.pub) that may sign the bundles we import
+keys = "trusted-keys"
+# check the signatures of bundles; only turn this off for testing
+verify-signatures = true
+
+[channels.main]
+# where clients look for images first, for example the release assets of a GitHub project;
+# placeholders: {component}, {version}, {revision} and {file}
+#image-url = "https://github.com/example/images/releases/download/images/{file}"
+# leave the images that were found at image-url out of the public tree
+#omit-local-images = false
