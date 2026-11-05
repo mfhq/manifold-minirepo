@@ -277,8 +277,8 @@ class _TreeBuilder:
                     by_arch[image.architecture].append(image)
 
             channel_entry = {}
-            if channel.image_url is not None:
-                channel_entry['image-url'] = channel.image_url
+            if channel.image_url_prefix is not None:
+                channel_entry['image-url-prefix'] = channel.image_url_prefix
             channel_entry['architectures'] = {
                 arch: self._build_architecture(channel, arch, by_arch[arch]) for arch in sorted(by_arch)
             }

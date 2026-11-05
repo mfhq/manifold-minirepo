@@ -36,7 +36,7 @@ verify-signatures = true
 
 [channels.main]
 # where clients look for images first, for example the release assets of a GitHub project;
-# placeholders: {component}, {version}, {revision} and {file}
-#image-url = "https://github.com/example/images/releases/download/images/{file}"
-# leave the images that were found at image-url out of the public tree
+# they append "/" and the file name of the image, <verity-hash>.raw.zck
+#image-url-prefix = "https://github.com/example/images/releases/download/images"
+# leave the images that were found below image-url-prefix out of the public tree
 #omit-local-images = false

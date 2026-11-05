@@ -179,9 +179,9 @@ def pending_uploads(state: _CmdContext, link_to: Path | None):
     with repo.lock(), repo.db.session() as session:
         pending = _run(find_pending_uploads, repo, session)
         for upload in pending:
-            click.echo('{}\t{}'.format(upload.asset_name, upload.url))
+            click.echo('{}\t{}'.format(upload.image.zck_name, upload.url))
             if link_to is not None:
-                link_or_copy(upload.path, link_to / upload.asset_name)
+                link_or_copy(upload.path, link_to / upload.image.zck_name)
 
 
 @cli.command('external-files')
@@ -193,7 +193,7 @@ def external_files(state: _CmdContext):
 
     with repo.lock(), repo.db.session() as session:
         for external in _run(find_external_files, repo, session):
-            click.echo('{}\t{}'.format(external.asset_name, external.url))
+            click.echo('{}\t{}'.format(external.image.zck_name, external.url))
 
 
 @cli.command()

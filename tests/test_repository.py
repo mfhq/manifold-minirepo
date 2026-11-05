@@ -273,9 +273,8 @@ def test_republish_and_expiry(env):
 
 def test_external_images(env, http_dir):
     served_dir, base_url = http_dir
-    env.write_config(
-        '[channels.main]\nimage-url = "{}/{{component}}/{{file}}"\nomit-local-images = true\n'.format(base_url)
-    )
+    # the prefix may end with a "/", which is not published
+    env.write_config('[channels.main]\nimage-url-prefix = "{}/images/"\nomit-local-images = true\n'.format(base_url))
     repo = env.repo()
     env.bundle('core.manifold', [TestImage('org.example.Core')])
     import_bundles(repo)
@@ -287,28 +286,29 @@ def test_external_images(env, http_dir):
         pending = find_pending_uploads(repo, session)
         assert len(pending) == 1
         upload = pending[0]
-        assert upload.url == '{}/org.example.Core/{}'.format(base_url, upload.asset_name)
+        file_name = upload.image.zck_name
+        assert upload.url == '{}/images/{}'.format(base_url, file_name)
     publish(repo)
     assert len(list(env.public_dir.rglob('*.raw.zck'))) == 1
 
     # a different file at the URL does not count
-    (served_dir / 'org.example.Core').mkdir()
-    (served_dir / 'org.example.Core' / upload.asset_name).write_bytes(b'not the image')
+    (served_dir / 'images').mkdir()
+    (served_dir / 'images' / file_name).write_bytes(b'not the image')
     publish(repo, force=True)
     assert len(list(env.public_dir.rglob('*.raw.zck'))) == 1
 
     # once the image is there, clients get it from there
-    shutil.copy(upload.path, served_dir / 'org.example.Core' / upload.asset_name)
+    shutil.copy(upload.path, served_dir / 'images' / file_name)
     publish(repo, force=True)
     assert list(env.public_dir.rglob('*.raw.zck')) == []
-    assert env.read_root_index()['channels']['main']['image-url'] == base_url + '/{component}/{file}'
+    assert env.read_root_index()['channels']['main']['image-url-prefix'] == base_url + '/images'
     with repo.db.session() as session:
         assert find_pending_uploads(repo, session) == []
 
 
 def test_external_files(env, http_dir):
     _, base_url = http_dir
-    env.write_config('[channels.main]\nimage-url = "{}/{{file}}"\n'.format(base_url))
+    env.write_config('[channels.main]\nimage-url-prefix = "{}"\n'.format(base_url))
     repo = env.repo()
     env.bundle('core.manifold', [TestImage('org.example.Core')])
     import_bundles(repo)
@@ -318,7 +318,7 @@ def test_external_files(env, http_dir):
 
     def external_files() -> list[str]:
         with repo.db.session() as session:
-            return [external.asset_name for external in find_external_files(repo, session)]
+            return [external.image.zck_name for external in find_external_files(repo, session)]
 
     # an image that is not at its URL yet still belongs there
     first = external_files()
@@ -370,8 +370,9 @@ def test_config_errors(env):
 
     for extra in (
         '[channels.beta]\n',
-        '[channels.main]\nimage-url = "https://example.org/images/"\n',
-        '[channels.main]\nimage-url = "https://example.org/{arch}/{file}"\n',
+        '[channels.main]\nimage-url-prefix = "ftp://example.org/images"\n',
+        '[channels.main]\nimage-url-prefix = "https://example.org/images?tag=1"\n',
+        '[channels.main]\nimage-url-prefix = "https://example.org/images#top"\n',
     ):
         path = env.write_config(extra)
         with pytest.raises(ConfigError):

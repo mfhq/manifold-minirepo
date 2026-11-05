@@ -21,9 +21,6 @@ MAIN_CHANNEL = 'main'
 # the environment variable with a private key to sign the root index with, instead of signing-key
 SIGNING_KEY_ENV = 'MREPO_SIGNING_KEY'
 
-# the placeholders an image URL template can have
-IMAGE_URL_PLACEHOLDERS = ('{component}', '{version}', '{revision}', '{file}')
-
 _ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 
 
@@ -36,9 +33,9 @@ class ChannelConfig:
     """How a channel of the repository is published."""
 
     name: str
-    # where clients try to download images first, see the repository format
-    image_url: str | None = None
-    # leave images that are confirmed at image_url out of the public tree
+    # where clients try to download images first, without a "/" at its end, see the repository format
+    image_url_prefix: str | None = None
+    # leave images that are confirmed at their external URL out of the public tree
     omit_local_images: bool = False
 
 
@@ -148,17 +145,16 @@ def load_config(path: Path) -> Config:
             raise ConfigError('Only the "{}" channel is supported, not "{}"'.format(MAIN_CHANNEL, channel_name))
     channel_data = channels.get(MAIN_CHANNEL, {})
     section = 'channels.' + MAIN_CHANNEL
-    image_url = _get(channel_data, 'image-url', str, section)
-    if image_url is not None:
-        _check_url(image_url, '[{}] image-url'.format(section))
-        if '{file}' not in image_url:
-            raise ConfigError('[{}] image-url has to contain the {{file}} placeholder'.format(section))
-        for unknown in re.findall(r'\{[^}]*\}', image_url):
-            if unknown not in IMAGE_URL_PLACEHOLDERS:
-                raise ConfigError('[{}] image-url has an unknown placeholder {}'.format(section, unknown))
+    image_url_prefix = _get(channel_data, 'image-url-prefix', str, section)
+    if image_url_prefix is not None:
+        _check_url(image_url_prefix, '[{}] image-url-prefix'.format(section))
+        # clients append "/" and the file name, which would end up in a query or fragment
+        if '?' in image_url_prefix or '#' in image_url_prefix:
+            raise ConfigError('[{}] image-url-prefix can not have a query or a fragment'.format(section))
+        image_url_prefix = image_url_prefix.rstrip('/')
     config.channels[MAIN_CHANNEL] = ChannelConfig(
         name=MAIN_CHANNEL,
-        image_url=image_url,
+        image_url_prefix=image_url_prefix,
         omit_local_images=_get(channel_data, 'omit-local-images', bool, section, default=False),
     )
 

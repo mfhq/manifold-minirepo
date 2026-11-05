@@ -6,14 +6,14 @@
 Images that are served from somewhere else, like the release assets of a
 GitHub project.
 
-A channel can name a URL where clients look for images first. We only rely on
-such a copy once we found the same file there: of the same size, and with the
-same zchunk header, whose checksum covers the digest of every chunk.
+A channel can name a URL prefix where clients look for images first, by their
+file names. We only rely on such a copy once we found the same file there: of
+the same size, and with the same zchunk header, whose checksum covers the
+digest of every chunk.
 """
 
 import os
 import logging
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from dataclasses import dataclass
@@ -31,19 +31,9 @@ USER_AGENT = 'manifold-mrepo/{}'.format(__version__)
 TIMEOUT_SECONDS = 30
 
 
-def expand_image_url(template: str, image: Image) -> str:
-    """The URL of an image, made from the image URL template of its channel."""
-    return (
-        template.replace('{component}', urllib.parse.quote(image.component_id, safe=''))
-        .replace('{version}', urllib.parse.quote(image.version, safe=''))
-        .replace('{revision}', str(image.revision))
-        .replace('{file}', image.zck_name)
-    )
-
-
-def asset_name(url: str) -> str:
-    """The name of the file at a URL, which is what it has to be uploaded as."""
-    return urllib.parse.unquote(urllib.parse.urlparse(url).path.rsplit('/', 1)[-1])
+def external_image_url(prefix: str, image: Image) -> str:
+    """The URL of an image below the image URL prefix of its channel, the way clients build it."""
+    return '{}/{}'.format(prefix, image.zck_name)
 
 
 def _request(url: str, method: str = 'GET', headers: dict | None = None) -> urllib.request.Request:
@@ -88,16 +78,17 @@ def find_external_image(repo: Repository, url: str, image: Image) -> bool:
 
 def check_external_images(repo: Repository, session, *, recheck: bool = False) -> None:
     """
-    Look for the images of every channel with an image URL at that URL. An image
-    that was found once is not checked again, unless we are asked to.
+    Look for the images of every channel with an image URL prefix at their URL
+    there. An image that was found once is not checked again, unless we are
+    asked to.
     """
     now = utcnow()
     for channel in repo.config.channels.values():
-        if channel.image_url is None:
+        if channel.image_url_prefix is None:
             continue
         images = session.scalars(select(Image).where(Image.channel == channel.name, Image.removed_at.is_(None)))
         for image in images:
-            url = expand_image_url(channel.image_url, image)
+            url = external_image_url(channel.image_url_prefix, image)
             if not recheck and image.external_url == url:
                 continue
             found = find_external_image(repo, url, image)
@@ -109,11 +100,10 @@ def check_external_images(repo: Repository, session, *, recheck: bool = False) -
 
 @dataclass
 class ExternalImage:
-    """An image of a channel with an image URL, and where it is located there."""
+    """An image of a channel with an image URL prefix, and its URL there."""
 
     image: Image
     url: str
-    asset_name: str
     # the zchunk file in the public tree, which is gone once the image was found at its URL
     path: Path
 
@@ -121,27 +111,27 @@ class ExternalImage:
 def _external_images(repo: Repository, session, *, pending: bool) -> list[ExternalImage]:
     found = []
     for channel in repo.config.channels.values():
-        if channel.image_url is None:
+        if channel.image_url_prefix is None:
             continue
         query = select(Image).where(Image.channel == channel.name)
         if pending:
             query = query.where(Image.removed_at.is_(None), Image.external_url.is_(None))
         for image in session.scalars(query.order_by(Image.component_id, Image.version, Image.revision)):
-            url = expand_image_url(channel.image_url, image)
-            found.append(ExternalImage(image, url, asset_name(url), repo.public_path(image.zck_location)))
+            url = external_image_url(channel.image_url_prefix, image)
+            found.append(ExternalImage(image, url, repo.public_path(image.zck_location)))
     return found
 
 
 def find_pending_uploads(repo: Repository, session) -> list[ExternalImage]:
-    """Find the images of channels with an image URL that are not found at that URL yet."""
+    """Find the images of channels with an image URL prefix that are not found at their URL yet."""
     check_external_images(repo, session)
     return _external_images(repo, session, pending=True)
 
 
 def find_external_files(repo: Repository, session) -> list[ExternalImage]:
     """
-    Find the images that have to stay at the image URL of their channel: those the
-    index lists, and those that left it but stay downloadable for their grace period.
-    Any other file at that location is not needed by the repository.
+    Find the images that have to stay below the image URL prefix of their channel:
+    those the index lists, and those that left it but stay downloadable for their
+    grace period. Any other file at that location is not needed by the repository.
     """
     return _external_images(repo, session, pending=False)
