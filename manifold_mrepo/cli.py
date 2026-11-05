@@ -184,6 +184,18 @@ def pending_uploads(state: _CmdContext, link_to: Path | None):
                 link_or_copy(upload.path, link_to / upload.asset_name)
 
 
+@cli.command('external-files')
+@click.pass_obj
+def external_files(state: _CmdContext):
+    """List the images that have to stay at their external URL, so the others can be removed from there."""
+    repo = state.repo
+    from manifold_mrepo.external import find_external_files
+
+    with repo.lock(), repo.db.session() as session:
+        for external in _run(find_external_files, repo, session):
+            click.echo('{}\t{}'.format(external.asset_name, external.url))
+
+
 @cli.command()
 @click.pass_obj
 def check(state: _CmdContext):

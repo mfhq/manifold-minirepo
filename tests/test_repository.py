@@ -306,6 +306,40 @@ def test_external_images(env, http_dir):
         assert find_pending_uploads(repo, session) == []
 
 
+def test_external_files(env, http_dir):
+    _, base_url = http_dir
+    env.write_config('[channels.main]\nimage-url = "{}/{{file}}"\n'.format(base_url))
+    repo = env.repo()
+    env.bundle('core.manifold', [TestImage('org.example.Core')])
+    import_bundles(repo)
+    publish(repo)
+
+    from manifold_mrepo.external import find_external_files
+
+    def external_files() -> list[str]:
+        with repo.db.session() as session:
+            return [external.asset_name for external in find_external_files(repo, session)]
+
+    # an image that is not at its URL yet still belongs there
+    first = external_files()
+    assert len(first) == 1 and first[0].endswith('.raw.zck')
+
+    # one that left the index is still needed during its grace period, for clients with an older index
+    env.bundle('core2.manifold', [TestImage('org.example.Core', version='2')])
+    import_bundles(repo)
+    assert len(remove_images(repo, 'org.example.Core', '1')) == 1
+    publish(repo)
+    assert len(external_files()) == 2 and first[0] in external_files()
+
+    # once that is over, only the images of the index are left
+    with repo.db.session() as session:
+        for image in session.query(Image).where(Image.removed_at.is_not(None)):
+            image.removed_at -= timedelta(days=repo.config.grace_days + 1)
+    publish(repo)
+    remaining = external_files()
+    assert len(remaining) == 1 and remaining[0] != first[0]
+
+
 def test_signing_key_from_environment(env, monkeypatch):
     env.bundle('core.manifold', [TestImage('org.example.Core')])
     env.write_config(signing_key=None)

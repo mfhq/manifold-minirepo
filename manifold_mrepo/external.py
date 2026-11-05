@@ -108,29 +108,40 @@ def check_external_images(repo: Repository, session, *, recheck: bool = False) -
 
 
 @dataclass
-class PendingUpload:
-    """An image that is not at its external URL yet."""
+class ExternalImage:
+    """An image of a channel with an image URL, and where it is located there."""
 
     image: Image
     url: str
     asset_name: str
-    # the zchunk file in the public tree
+    # the zchunk file in the public tree, which is gone once the image was found at its URL
     path: Path
 
 
-def find_pending_uploads(repo: Repository, session) -> list[PendingUpload]:
-    """Find the images of channels with an image URL that are not found at that URL yet."""
-    check_external_images(repo, session)
-    pending = []
+def _external_images(repo: Repository, session, *, pending: bool) -> list[ExternalImage]:
+    found = []
     for channel in repo.config.channels.values():
         if channel.image_url is None:
             continue
-        images = session.scalars(
-            select(Image)
-            .where(Image.channel == channel.name, Image.removed_at.is_(None), Image.external_url.is_(None))
-            .order_by(Image.component_id, Image.version, Image.revision)
-        )
-        for image in images:
+        query = select(Image).where(Image.channel == channel.name)
+        if pending:
+            query = query.where(Image.removed_at.is_(None), Image.external_url.is_(None))
+        for image in session.scalars(query.order_by(Image.component_id, Image.version, Image.revision)):
             url = expand_image_url(channel.image_url, image)
-            pending.append(PendingUpload(image, url, asset_name(url), repo.public_path(image.zck_location)))
-    return pending
+            found.append(ExternalImage(image, url, asset_name(url), repo.public_path(image.zck_location)))
+    return found
+
+
+def find_pending_uploads(repo: Repository, session) -> list[ExternalImage]:
+    """Find the images of channels with an image URL that are not found at that URL yet."""
+    check_external_images(repo, session)
+    return _external_images(repo, session, pending=True)
+
+
+def find_external_files(repo: Repository, session) -> list[ExternalImage]:
+    """
+    Find the images that have to stay at the image URL of their channel: those the
+    index lists, and those that left it but stay downloadable for their grace period.
+    Any other file at that location is not needed by the repository.
+    """
+    return _external_images(repo, session, pending=False)
