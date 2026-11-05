@@ -7,6 +7,7 @@ import re
 import json
 import shutil
 import hashlib
+import logging
 import subprocess
 from datetime import timedelta
 
@@ -66,6 +67,7 @@ def test_import_and_publish(env):
     root = env.read_root_index()
     assert root['id'] == 'test'
     assert root['summary'] == 'Images for the tests'
+    assert 'publisher' not in root
     # the origin of the channel is always test-main, so the root index doesn't repeat it
     channel = root['channels']['main']
     assert list(channel) == ['architectures']
@@ -248,8 +250,12 @@ def test_republish_and_expiry(env):
 
     # nothing changed, so nothing is published, unless we are asked to
     assert not publish(repo).published
+    env.write_config(repository='publisher-name = "Example Software"\npublisher-email = "repo@example.org"\n')
+    repo = env.repo()
     assert publish(repo, force=True).published
-    assert env.read_root_index()['serial'] > serial
+    root = env.read_root_index()
+    assert root['serial'] > serial
+    assert root['publisher'] == {'name': 'Example Software', 'email': 'repo@example.org'}
     assert catalog_path.read_bytes() == catalog
 
     # an index is published again before half of its validity has passed
@@ -271,8 +277,8 @@ def test_republish_and_expiry(env):
     assert not (env.public_dir / 'pool' / 'org').exists()
 
 
-def test_external_images(env, http_dir):
-    served_dir, base_url = http_dir
+def test_external_images(env, https_dir, caplog):
+    served_dir, base_url = https_dir.path, https_dir.url
     # the prefix may end with a "/", which is not published
     env.write_config('[channels.main]\nimage-url-prefix = "{}/images/"\nomit-local-images = true\n'.format(base_url))
     repo = env.repo()
@@ -297,8 +303,20 @@ def test_external_images(env, http_dir):
     publish(repo, force=True)
     assert len(list(env.public_dir.rglob('*.raw.zck'))) == 1
 
-    # once the image is there, clients get it from there
+    # hosts like GitHub redirect to another location, which has to be https as well
+    from manifold_mrepo.external import find_external_image
+
     shutil.copy(upload.path, served_dir / 'images' / file_name)
+    with repo.db.session() as session:
+        image = session.query(Image).one()
+        https_dir.redirects['/moved/' + file_name] = '{}/images/{}'.format(base_url, file_name)
+        assert find_external_image(repo, '{}/moved/{}'.format(base_url, file_name), image)
+        https_dir.redirects['/moved/' + file_name] = '{}/images/{}'.format(base_url.replace('https', 'http'), file_name)
+        caplog.set_level(logging.DEBUG, logger='manifold_mrepo.external')
+        assert not find_external_image(repo, '{}/moved/{}'.format(base_url, file_name), image)
+        assert 'not an https URL' in caplog.text
+
+    # once the image is there, clients get it from there
     publish(repo, force=True)
     assert list(env.public_dir.rglob('*.raw.zck')) == []
     assert env.read_root_index()['channels']['main']['image-url-prefix'] == base_url + '/images'
@@ -306,8 +324,8 @@ def test_external_images(env, http_dir):
         assert find_pending_uploads(repo, session) == []
 
 
-def test_external_files(env, http_dir):
-    _, base_url = http_dir
+def test_external_files(env, https_dir):
+    base_url = https_dir.url
     env.write_config('[channels.main]\nimage-url-prefix = "{}"\n'.format(base_url))
     repo = env.repo()
     env.bundle('core.manifold', [TestImage('org.example.Core')])
@@ -371,6 +389,7 @@ def test_config_errors(env):
     for extra in (
         '[channels.beta]\n',
         '[channels.main]\nimage-url-prefix = "ftp://example.org/images"\n',
+        '[channels.main]\nimage-url-prefix = "http://example.org/images"\n',
         '[channels.main]\nimage-url-prefix = "https://example.org/images?tag=1"\n',
         '[channels.main]\nimage-url-prefix = "https://example.org/images#top"\n',
     ):
@@ -378,10 +397,22 @@ def test_config_errors(env):
         with pytest.raises(ConfigError):
             load_config(path)
 
-    path = env.dir / 'ftp.toml'
-    path.write_text('[repository]\nid = "test"\nsummary = "Test"\nurl = "ftp://example.org"\nsigning-key = "key"\n')
-    with pytest.raises(ConfigError):
-        load_config(path)
+    # a publisher email needs a name, has to look like an address, and both are one line
+    for repository in (
+        'publisher-email = "repo@example.org"\n',
+        'publisher-name = "Example"\npublisher-email = "not an address"\n',
+        'publisher-name = "Two\\nlines"\n',
+    ):
+        path = env.write_config(repository=repository)
+        with pytest.raises(ConfigError):
+            load_config(path)
+
+    # clients only download over https
+    for url in ('ftp://example.org', 'http://example.org'):
+        path = env.dir / 'plain.toml'
+        path.write_text('[repository]\nid = "test"\nsummary = "Test"\nurl = "{}"\nsigning-key = "key"\n'.format(url))
+        with pytest.raises(ConfigError):
+            load_config(path)
 
     # a key path is relative to the configuration file
     config = load_config(env.write_config())

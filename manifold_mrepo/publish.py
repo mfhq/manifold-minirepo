@@ -284,16 +284,17 @@ class _TreeBuilder:
             }
             channels[channel.name] = channel_entry
 
-        return _json_bytes(
-            {
-                'id': self.config.id,
-                'summary': self.config.summary,
-                'serial': serial,
-                'date': rfc3339(self.now),
-                'valid-until': rfc3339(valid_until),
-                'channels': channels,
-            }
-        )
+        root = {'id': self.config.id, 'summary': self.config.summary}
+        if self.config.publisher_name is not None:
+            publisher = {'name': self.config.publisher_name}
+            if self.config.publisher_email is not None:
+                publisher['email'] = self.config.publisher_email
+            root['publisher'] = publisher
+        root['serial'] = serial
+        root['date'] = rfc3339(self.now)
+        root['valid-until'] = rfc3339(valid_until)
+        root['channels'] = channels
+        return _json_bytes(root)
 
 
 def _swap_into_place(staging_dir: Path, public_dir: Path) -> None:

@@ -6,6 +6,9 @@
 id = "example"
 # a short description of the repository, which clients can show
 summary = "Example applications and their runtimes"
+# who publishes the repository, which clients can show; publisher-email needs a publisher-name
+#publisher-name = "Example Software Inc."
+#publisher-email = "repo@example.org"
 # the public URL of the repository, which the media base URL of its catalogs is made from
 url = "https://example.org/manifold"
 # the key that signs the root index: a key name, a key file, or the fingerprint of a key in ssh-agent;

@@ -48,6 +48,8 @@ class Config:
     summary: str
     url: str
     signing_key: str | None  # None: the key is in $MREPO_SIGNING_KEY
+    publisher_name: str | None
+    publisher_email: str | None
     incoming_dir: Path
     processed_dir: Path | None  # None: imported bundles are deleted
     public_dir: Path
@@ -79,9 +81,20 @@ def _get(table: dict, key: str, kind: type, section: str, default=None, required
     return value
 
 
+def _get_line(table: dict, key: str, section: str, required: bool = False) -> str | None:
+    value = _get(table, key, str, section, required=required)
+    if value is None:
+        return None
+    value = value.strip()
+    if not value or '\n' in value:
+        raise ConfigError('[{}] {} must be one line of text'.format(section, key))
+    return value
+
+
 def _check_url(value: str, what: str) -> str:
-    if not value.startswith(('https://', 'http://')):
-        raise ConfigError('{} must be an http or https URL: {}'.format(what, value))
+    # clients only download over https
+    if not value.startswith('https://'):
+        raise ConfigError('{} must be an https URL: {}'.format(what, value))
     return value
 
 
@@ -109,9 +122,14 @@ def load_config(path: Path) -> Config:
     repo_id = _get(repo, 'id', str, 'repository', required=True)
     if not _ID_RE.match(repo_id):
         raise ConfigError('[repository] id may only contain letters, digits and ".", "_" or "-"')
-    summary = _get(repo, 'summary', str, 'repository', required=True).strip()
-    if not summary or '\n' in summary:
-        raise ConfigError('[repository] summary must be one line of text')
+    summary = _get_line(repo, 'summary', 'repository', required=True)
+    publisher_name = _get_line(repo, 'publisher-name', 'repository')
+    publisher_email = _get_line(repo, 'publisher-email', 'repository')
+    if publisher_email is not None:
+        if publisher_name is None:
+            raise ConfigError('[repository] publisher-email needs a publisher-name')
+        if '@' not in publisher_email or any(c.isspace() for c in publisher_email):
+            raise ConfigError('[repository] publisher-email is not an email address: {}'.format(publisher_email))
     url = _check_url(_get(repo, 'url', str, 'repository', required=True), '[repository] url').rstrip('/')
 
     # a key path is relative to the configuration, names and fingerprints are not paths
@@ -126,6 +144,8 @@ def load_config(path: Path) -> Config:
         summary=summary,
         url=url,
         signing_key=signing_key,
+        publisher_name=publisher_name,
+        publisher_email=publisher_email,
         incoming_dir=resolve(_get(paths, 'incoming', str, 'paths', default='incoming')),
         processed_dir=None if processed == 'delete' else resolve(processed),
         public_dir=resolve(_get(paths, 'public', str, 'paths', default='public')),

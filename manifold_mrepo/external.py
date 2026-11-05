@@ -14,6 +14,7 @@ digest of every chunk.
 
 import os
 import logging
+import urllib.error
 import urllib.request
 from pathlib import Path
 from dataclasses import dataclass
@@ -36,15 +37,27 @@ def external_image_url(prefix: str, image: Image) -> str:
     return '{}/{}'.format(prefix, image.zck_name)
 
 
-def _request(url: str, method: str = 'GET', headers: dict | None = None) -> urllib.request.Request:
-    return urllib.request.Request(url, method=method, headers={'User-Agent': USER_AGENT, **(headers or {})})
+class _HttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follows redirects to https URLs only, as clients do."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.startswith('https://'):
+            raise urllib.error.URLError('{} redirects to {}, which is not an https URL'.format(req.full_url, newurl))
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open(url: str, method: str = 'GET', headers: dict | None = None):
+    # we make an opener for each request, as its https handler only loads the trusted certificates once
+    opener = urllib.request.build_opener(_HttpsRedirectHandler)
+    request = urllib.request.Request(url, method=method, headers={'User-Agent': USER_AGENT, **(headers or {})})
+    return opener.open(request, timeout=TIMEOUT_SECONDS)
 
 
 def find_external_image(repo: Repository, url: str, image: Image) -> bool:
     """Check whether a URL serves the zchunk file of an image."""
     try:
         # hosts like GitHub redirect to a temporary location, which we send the range request to
-        with urllib.request.urlopen(_request(url, 'HEAD'), timeout=TIMEOUT_SECONDS) as response:
+        with _open(url, 'HEAD') as response:
             length = response.headers.get('Content-Length')
             location = response.geturl()
         if length is None or int(length) != image.zck_size:
@@ -52,7 +65,7 @@ def find_external_image(repo: Repository, url: str, image: Image) -> bool:
             return False
 
         headers = {'Range': 'bytes=0-{}'.format(image.zck_header_size - 1)}
-        with urllib.request.urlopen(_request(location, headers=headers), timeout=TIMEOUT_SECONDS) as response:
+        with _open(location, headers=headers) as response:
             header = response.read(image.zck_header_size)
     except (OSError, ValueError) as e:
         log.debug('Unable to check %s: %s', url, e)

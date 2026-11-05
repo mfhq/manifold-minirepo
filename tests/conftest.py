@@ -6,8 +6,10 @@
 Fixtures that make up bundles and repositories.
 """
 
+import ssl
 import json
 import random
+import shutil
 import hashlib
 import threading
 import subprocess
@@ -210,19 +212,63 @@ def env(tmp_path):
     env.close()
 
 
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+class _Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, redirects: dict[str, str], **kwargs):
+        self.redirects = redirects
+        super().__init__(*args, **kwargs)
+
+    def send_head(self):
+        location = self.redirects.get(self.path)
+        if location is None:
+            return super().send_head()
+        self.send_response(302)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+        return None
+
     def log_message(self, format, *args):
         pass
 
 
+@dataclass
+class HttpsDir:
+    """A directory served over https."""
+
+    path: Path
+    url: str
+    # paths that are redirected to another URL, as GitHub does for release assets
+    redirects: dict[str, str]
+
+
 @pytest.fixture
-def http_dir(tmp_path):
-    """A directory served over HTTP, like release assets on a web host."""
+def https_dir(tmp_path, monkeypatch):
+    """A directory served over https, like release assets on a web host, with a certificate of its own."""
+    if shutil.which('openssl') is None:
+        pytest.skip('openssl is not available')
+    cert = tmp_path / 'cert.pem'
+    key = tmp_path / 'key.pem'
+    subprocess.run(
+        ['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes']
+        + ['-keyout', str(key), '-out', str(cert), '-days', '1', '-subj', '/CN=127.0.0.1']
+        + ['-addext', 'subjectAltName=IP:127.0.0.1'],
+        check=True,
+        capture_output=True,
+    )
+    # we trust this certificate alone, through the default verify paths of OpenSSL
+    monkeypatch.setenv('SSL_CERT_FILE', str(cert))
+
     served = tmp_path / 'served'
     served.mkdir()
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), partial(_QuietHandler, directory=str(served)))
+    redirects = {}
+    server = http.server.ThreadingHTTPServer(
+        ('127.0.0.1', 0), partial(_Handler, redirects=redirects, directory=str(served))
+    )
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield served, 'http://127.0.0.1:{}'.format(server.server_address[1])
+    yield HttpsDir(served, 'https://127.0.0.1:{}'.format(server.server_address[1]), redirects)
     server.shutdown()
     server.server_close()
